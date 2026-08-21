@@ -34,5 +34,28 @@ $0 si trabajó menos de 30 días), causal escrita en texto exacto del
 desplegable, PDF con LibreOffice preservando formato/negrita real, y
 resiliencia fila por fila ante datos inválidos.
 
+## Bug del PDF con formato/tamaño distinto (arreglado)
+
+**Síntoma:** el Word salía perfecto, pero al pasar por PDF se desbordaba a una
+página extra (ej. la Declaración Jurada de 1 hoja pasaba a 2), con el logo del
+encabezado "duplicado" en la segunda hoja.
+
+**Causa real:** el servidor no tiene instaladas las fuentes reales del molde
+(Arial, Times New Roman — son fuentes con licencia de Microsoft). LibreOffice
+usa fuentes equivalentes (Liberation Sans/Serif) que igualan el ancho de cada
+letra, pero no el alto de línea exacto — esa diferencia mínima, repetida en
+varias líneas, terminaba empujando el bloque de firma a una segunda página.
+
+**Arreglo:** antes de convertir a PDF, se fija el interlineado en un valor
+EXACTO (ya no "automático" según la fuente), así el resultado no depende de
+qué fuente use el servidor. Los párrafos con imágenes/sellos se excluyen a
+propósito para no aplastarlos. Esto se aplica solo a la copia usada para
+generar el PDF — el .docx que descargas nunca se toca.
+
+Probado con la Declaración Jurada real (pasó de 2 a 1 página, sello intacto)
+y verificado que NO cambia nada en documentos que ya estaban bien (Finiquito
+de Juan Ricardo, los 47 Contratos reales — misma cantidad de páginas antes y
+después del arreglo).
+
 ---
 

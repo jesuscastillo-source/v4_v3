@@ -27,6 +27,8 @@ from openpyxl import load_workbook
 from openpyxl.utils.datetime import from_excel
 from docx import Document
 from docx.shared import Pt
+from docx.enum.text import WD_LINE_SPACING
+from docx.oxml.ns import qn
 from num2words import num2words
 import holidays
 
@@ -204,6 +206,51 @@ def libreoffice_disponible():
     return shutil.which("soffice") is not None
 
 
+def _preparar_docx_para_pdf(docx_bytes: bytes) -> bytes:
+    """Devuelve una copia del .docx con el interlineado fijado en un valor EXACTO
+    (no 'automático' según la fuente). El servidor no tiene Arial/Times New Roman
+    instalados de verdad — usa fuentes equivalentes que miden ligeramente distinto
+    en alto de línea — y eso puede desbordar el documento a una página extra al
+    convertir a PDF, aunque en Word se vea perfecto en una sola página. Fijar el
+    interlineado en un valor exacto hace que el resultado no dependa de qué fuente
+    use el servidor. No toca párrafos que tengan imágenes/sellos (para no
+    aplastarlos), y esta copia se usa SOLO para generar el PDF — el .docx que se
+    entrega al usuario nunca se modifica."""
+    try:
+        doc = Document(io.BytesIO(docx_bytes))
+
+        def tiene_dibujo(p):
+            return bool(p._p.findall(".//" + qn("w:drawing")))
+
+        def procesar(parrafos):
+            for p in parrafos:
+                if tiene_dibujo(p) or not p.runs:
+                    continue
+                tam = None
+                for r in p.runs:
+                    if r.font.size:
+                        tam = r.font.size.pt
+                        break
+                if tam is None and p.style and p.style.font and p.style.font.size:
+                    tam = p.style.font.size.pt
+                if tam is None:
+                    tam = 11.0
+                p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+                p.paragraph_format.line_spacing = Pt(tam * 1.15)
+
+        procesar(doc.paragraphs)
+        for t in doc.tables:
+            for row in t.rows:
+                for cell in row.cells:
+                    procesar(cell.paragraphs)
+
+        buf = io.BytesIO()
+        doc.save(buf)
+        return buf.getvalue()
+    except Exception:
+        return docx_bytes  # si algo falla, seguimos con el original tal cual
+
+
 def convertir_docs_a_pdf_batch(archivos_docx: dict) -> tuple:
     """archivos_docx: {nombre_sin_extension: bytes_docx}.
     Convierte TODOS los documentos en una sola invocación de LibreOffice (mucho
@@ -224,7 +271,7 @@ def convertir_docs_a_pdf_batch(archivos_docx: dict) -> tuple:
             for nombre, docx_bytes in archivos_docx.items():
                 ruta = os.path.join(tmpdir, f"{nombre}.docx")
                 with open(ruta, "wb") as f:
-                    f.write(docx_bytes)
+                    f.write(_preparar_docx_para_pdf(docx_bytes))
                 rutas.append(ruta)
 
             resultado = subprocess.run(
